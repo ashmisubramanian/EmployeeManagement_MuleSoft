@@ -1,0 +1,278 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:jms="http://www.mulesoft.org/schema/mule/jms" xmlns:db="http://www.mulesoft.org/schema/mule/db"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/jms http://www.mulesoft.org/schema/mule/jms/current/mule-jms.xsd">
+	<http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config" doc:id="a2a850a8-1409-4175-9d22-baf4c91926a2" >
+		<http:listener-connection host="0.0.0.0" port="8081" />
+	</http:listener-config>
+	<jms:config name="JMS_Config" doc:name="JMS Config" doc:id="09fb0e36-ef79-4dfe-90dc-8632038d4c3b" >
+		<jms:active-mq-connection username="admin" password="admin" >
+			<jms:factory-configuration brokerUrl="tcp://localhost:61616" />
+		</jms:active-mq-connection>
+	</jms:config>
+	<flow name="employeemanagementFlow" doc:id="78c46046-184a-4921-b55c-b2815c9e9ed0" >
+		<http:listener doc:name="Listener" doc:id="37a40d21-31a0-4b29-8536-3b5d4dad3c38" config-ref="HTTP_Listener_config" path="/employee">
+			<http:error-response >
+				<http:body ><![CDATA[#[payload]]]></http:body>
+			</http:error-response>
+		</http:listener>
+		<set-variable value="#[payload]" doc:name="employeeInfo" doc:id="0f5f27da-03aa-43ea-a85c-23e9ac1494b0" variableName="info" />
+		<set-variable value="#[attributes.method]" doc:name="method" doc:id="c5a9985a-3b82-4b14-987b-ffb5c0876066" variableName="method"/>
+		<set-variable value="#[attributes.queryParams.id]" doc:name="queryParams-id" doc:id="1ce71849-cf5a-4ad5-a797-39204f206353" variableName="id"/>
+		<set-variable value="#[attributes.queryParams.gender]" doc:name="queryParams-gender" doc:id="5cc1eac5-8c30-4757-b397-e22d9587037e" variableName="gender"/>
+		<set-variable value="#[attributes.queryParams.minAge]" doc:name="queryParams-age" doc:id="e517b43b-8f3e-4c5b-bd3b-270c391e2202" variableName="minAge"/>
+		<choice doc:name="Choice" doc:id="4d54cef3-a143-497a-84c8-12a47467f285">
+			<when expression='#[upper(vars.method) == "POST"]'>
+				<choice doc:name="Choice" doc:id="5bd94603-b67c-4307-a585-117ece3d4771" >
+					<when expression="#[!isEmpty(payload)]">
+						<db:insert doc:name="Insert EmpDetail-DB" doc:id="843e25c7-6218-4b30-b935-98a1451a8925" config-ref="Database_Config">
+			<db:sql><![CDATA[INSERT INTO mulesoft.employee (name, salary, age, designation, gender) VALUES (:name, :salary, :age, :designation, :gender);]]></db:sql>
+			<db:input-parameters><![CDATA[#[{
+	name:payload.name,
+	salary:payload.salary,
+    age:payload.age,
+    designation:payload.designation,
+    gender:payload.gender
+}]]]></db:input-parameters>
+		</db:insert>
+						<set-payload value='#["An employee with name "++ vars.info.name ++ " added successfully to DB"]' doc:name="Successful insertion" doc:id="48fd4123-e926-43fc-953f-cb480cdcd65c" />
+					</when>
+					<otherwise>
+						<set-payload value='#["should pass a payload with name, salary, age, designation, gender"]' doc:name=" Payload-empty-for-insertion" doc:id="d729a522-4f24-44bf-a545-8529429132cf" />
+					</otherwise>
+				</choice>
+				<logger level="INFO" doc:name="Insertion Complete" doc:id="aabf0614-a1e7-4896-b04d-44da8fc88b24" message='#["Insertion Complete"]'/>
+			</when>
+			<when expression='#[upper(vars.method) == "GET"]'>
+				<choice doc:name="Choice" doc:id="200833df-9ab8-4438-9004-191c32e8245a" >
+					<when expression="#[!isEmpty(vars.id)]">
+						<db:select doc:name="Select-Employee-withId" doc:id="109cf8de-fbad-4785-8dc9-4d0a913dec37" config-ref="Database_Config">
+							<db:sql ><![CDATA[SELECT * FROM mulesoft.employee where empId=:id;]]></db:sql>
+							<db:input-parameters ><![CDATA[#[{
+	id: vars.id
+}]]]></db:input-parameters>
+						</db:select>
+						<ee:transform doc:name="Transform Message-for-employee-withId" doc:id="07d54499-930e-4e0c-b570-575a203a0b28" >
+							<ee:message >
+								<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload map ((item, index) -> {
+	"Employee Name":item.name,
+	"Age":item.age,
+	"Designation":item.designation,
+	"Annual Income":item.salary*12
+})]]></ee:set-payload>
+							</ee:message>
+						</ee:transform>
+					</when>
+					<when expression="#[!isEmpty(vars.gender)]">
+						<db:select doc:name="Select-Employes-byGender" doc:id="0624c988-2f24-4007-8588-d8f2a41b65e5" config-ref="Database_Config">
+							<db:sql ><![CDATA[SELECT * FROM mulesoft.employee where gender=:gender;]]></db:sql>
+							<db:input-parameters ><![CDATA[#[{
+	gender:upper(vars.gender)
+}]]]></db:input-parameters>
+						</db:select>
+						<ee:transform doc:name="Transform Message-for-employees-byGender" doc:id="7eaca7dc-6303-4ae3-bbfb-ef5de588f582" >
+							<ee:message >
+								<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+(payload map ((item, index) -> {
+	"Employee Name":item.name,
+	"Age":item.age,
+	"Designation":item.designation
+}))orderBy $.Age]]></ee:set-payload>
+							</ee:message>
+						</ee:transform>
+					</when>
+					<when expression="#[!isEmpty(vars.minAge)]">
+						<db:select doc:name="Select-Employee-byAge" doc:id="f5e89496-5db9-4b7d-a7a8-d9d8cb297b47" config-ref="Database_Config">
+							<db:sql ><![CDATA[SELECT * FROM mulesoft.employee;]]></db:sql>
+						</db:select>
+						<ee:transform doc:name="Transform Message-for-allEmployees-aboveAge" doc:id="56948625-4fd7-4f43-83b4-ecca69c65de0" >
+							<ee:message >
+								<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+
+((payload map ((item, index) -> {
+	"Employee Name":item.name,
+	"Age":item.age,
+	"Gender":item.gender,
+	"Designation":item.designation
+})) filter $.Age>=vars.minAge)groupBy $.Gender]]></ee:set-payload>
+							</ee:message>
+						</ee:transform>
+					</when>
+					<otherwise >
+						<db:select doc:name="Select EmployeeDetails" doc:id="66e8b38f-6335-450b-bd60-34e5f53a9938" config-ref="Database_Config">
+			<db:sql><![CDATA[SELECT * FROM mulesoft.employee;]]></db:sql>
+		</db:select>
+						<ee:transform doc:name="Transform Message-for-allEmployees" doc:id="24397441-1640-46ff-aff7-e80c0368cd4b">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+					</otherwise>
+				</choice>
+				<logger level="INFO" doc:name="Selection Complete" doc:id="8be21931-3407-456a-90b8-a597276034d7" message='#["Selection complete"]' />
+			</when>
+			<when expression='#[upper(vars.method) == "PUT"]'>
+				<choice doc:name="Choice" doc:id="033742f4-3358-4521-aa65-667bd9c26a8d">
+					<when expression="#[!isEmpty(vars.id)]">
+						<flow-ref doc:name="Flow Reference to update" doc:id="024d0a1d-ec58-4fc5-82c7-bbcbd7c7aa92" name="employeemanagementFlow1updateDetails" />
+					</when>
+					<otherwise >
+						<set-payload value='#["Id of employee to be delted not specified"]' doc:name="No-id-for-put" doc:id="a63bb2a8-434c-4ba9-9d87-938fb1f9215d" />
+					</otherwise>
+				</choice>
+				<logger level="INFO" doc:name="Updation complete" doc:id="36ca30f2-7a4e-4ce8-84d3-75e663417840" message='#["Updation complete"]' />
+			</when>
+			<when expression='#[upper(vars.method) == "DELETE"]'>
+				<choice doc:name="Choice" doc:id="276fe44e-371c-4911-b22f-fa61091736b5" >
+					<when expression="#[!isEmpty(vars.id)]">
+						<flow-ref doc:name="Flow Reference" doc:id="5c8ef90a-2f84-4e5f-bce5-e907d49fbb7c" name="employeemanagementFlow1forDeletion"/>
+					</when>
+					<otherwise >
+						<set-payload value='#["Id of employee to be deleted should be passed"]' doc:name="No-id-for-delete" doc:id="84ad076c-55e8-4e18-935d-399d6f5744e3" />
+					</otherwise>
+				</choice>
+				<logger level="INFO" doc:name="Deletion Complete" doc:id="6423e76f-9b76-4c01-a580-2321ddb41bee" message='#["Deletion Complete"]' />
+			</when>
+			<otherwise>
+				<set-payload value='#["not a valid method"]' doc:name="Invalid Method" doc:id="cdc35615-3cbc-419f-b008-393755856435" />
+			</otherwise>
+		</choice>
+		<error-handler >
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="c95738ad-bac3-48b4-980b-a687bc6c2a68" >
+				<set-payload value='#["ERROR: "++(vars.error as String)]' doc:name="Set Payload" doc:id="b557d211-dd52-4ed7-8adc-510306e86117" />
+			</on-error-propagate>
+		</error-handler>
+	</flow>
+	<flow name="employeemanagementFlow1forDeletion" doc:id="b3de3865-5563-4888-85ad-e83ca2798d09" >
+		<db:delete doc:name="Delete-Employee" doc:id="c1d93489-20fa-49fb-9b8b-899f1f456c48" config-ref="Database_Config">
+					<db:sql><![CDATA[DELETE FROM mulesoft.employee WHERE empId=:id;]]></db:sql>
+					<db:input-parameters><![CDATA[#[{
+	id:vars.id
+}]]]></db:input-parameters>
+				</db:delete>
+		<choice doc:name="Choice" doc:id="95497550-9644-4c42-8194-0528fe410d6d" >
+			<when expression="#[payload !=0]">
+				<set-payload value='#["Employee with id "++(vars.id as String)++" successfully deleted"]' doc:name="Successful deletion" doc:id="b6e91085-243a-47c9-b635-07886879bf29" />
+			</when>
+			<otherwise>
+				<raise-error doc:name="Raise error" doc:id="e6c4b474-3c85-40b6-b3f5-31cf1ce17209" type="INVALID:INVALID_ID" description="Invalid Employee ID is passed"/>
+			</otherwise>
+		</choice>
+		<error-handler >
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="f1a0a8dd-3d84-43c6-9039-877eba67b195" type="INVALID:INVALID_ID">
+				<set-payload value="#[&quot;An employee with id &quot;++(vars.id as String)++&quot; doesn't exist&quot;]" doc:name="Id-doesn't-exist" doc:id="a9ea1957-c22f-4674-9785-87a2d86bfebf" />
+				<set-variable value="#[payload]" doc:name="error" doc:id="ef439d09-3085-4ada-b2c0-61b576579565" variableName="error"/>
+			</on-error-propagate>
+		</error-handler>
+	</flow>
+	<flow name="employeemanagementFlow1updateDetails" doc:id="4914ed05-fa8b-46fc-a4ef-94eec96e3ae2" >
+		<db:update doc:name="Update Employee Details" doc:id="6e642253-0cbb-41b4-8fdf-761ac7011052" config-ref="Database_Config">
+			<db:sql ><![CDATA[update mulesoft.employee set name=:name, salary=:salary, age=:age, designation=:designation, gender=:gender where empId=:id;]]></db:sql>
+			<db:input-parameters ><![CDATA[#[{
+	name:payload.name,
+	salary:payload.salary,
+    age:payload.age,
+    designation:payload.designation,
+    gender:payload.gender,
+    id:vars.id
+}]]]></db:input-parameters>
+		</db:update>
+		<choice doc:name="Choice" doc:id="cf241bf3-aa01-41c4-a094-a7b6ff1d57ad">
+			<when expression="#[payload != 0]">
+				<set-payload value='#["Employee with id "++(vars.id as String)++" successfully updated"]' doc:name="Successful updation" doc:id="74c05ad7-831a-40da-adb1-26d99d36aa7b" />
+			</when>
+			<otherwise >
+				<set-payload value="#[&quot;Employee with id &quot;++(vars.id as String)++&quot; doesn't exist&quot;]" doc:name="Id-dont-exist" doc:id="7e3d8ce3-adf7-42c3-9081-fb378544f08f" />
+			</otherwise>
+		</choice>
+	</flow>
+	<flow name="employeemanagementFlow2" doc:id="6c86e650-5814-4970-8625-33c5076b73f5" >
+		<http:listener doc:name="Listener" doc:id="bb817036-dfc7-4fc0-8ee0-d303b82000b2" config-ref="HTTP_Listener_config" path="/avg"/>
+		<db:select doc:name="Select" doc:id="600ead02-4f95-40b4-9eee-15fad2051163" config-ref="Database_Config">
+			<db:sql ><![CDATA[SELECT age FROM mulesoft.employee;]]></db:sql>
+		</db:select>
+		<ee:transform doc:name="Transform Message avg age" doc:id="abb29e35-7329-4556-9a5a-51d441452198" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+
+
+var flattenedAges = flatten(payload.age)
+var size=sizeOf(flattenedAges)
+var sum = flattenedAges reduce ((acc, age) -> acc + age) default 0
+var avg = if (size > 0) sum / size else null
+---
+{
+	"size":size,
+	"Avg age": avg
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</flow>
+	<flow name="employeemanagementFlow1" doc:id="e94d17c6-1238-4803-a921-606b730f74c9" >
+		<http:listener doc:name="ListenerAvgAge" doc:id="cace1925-2e89-40cc-ac92-97b74b39395b" config-ref="HTTP_Listener_config" path="/avgAge"/>
+		<db:select doc:name="Select" doc:id="753fc955-3826-497e-96ab-d091a8476181" config-ref="Database_Config">
+			<db:sql ><![CDATA[SELECT age FROM mulesoft.employee;]]></db:sql>
+		</db:select>
+		<set-payload value="#[payload]" doc:name="Set Payload" doc:id="8db3eeab-6b89-4829-8cff-4fcba9622191" />
+		<set-variable value="#[0]" doc:name="sum-age" doc:id="3763ff68-047b-4339-afac-51fe2faef426" variableName="sum"/>
+		<foreach doc:name="For Each" doc:id="7d91ab76-6f4d-4768-ba1e-68b9b1724ba6" >
+			<set-payload value="#[payload.age]" doc:name="Set Payload" doc:id="037501f0-f94e-4be8-b022-a2cf0c050d15" />
+			<set-variable value="#[vars.rootMessage.payload.age+ payload]" doc:name="each-age" doc:id="7645957e-b72f-4cd3-abc1-bc4e1fb65c3d" variableName="each"/>
+		</foreach>
+		<ee:transform doc:name="Transform Message" doc:id="f8360bed-ec9a-40eb-bdf5-0492cb78b071" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[payload.age]]></ee:set-payload>
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="s" ><![CDATA[%dw 2.0
+output application/java
+---
+{
+}]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<logger level="INFO" doc:name="Logger" doc:id="7c6c6abc-6bb5-4d09-b734-a9b046de32a7" message='#["hello" ++ payload]'/>
+	</flow>
+	<flow name="employeemanagementFlow3" doc:id="60d56b20-59b5-4617-a40b-7b35c32e6a53" >
+		<http:listener doc:name="Listener" doc:id="539c689c-9b8b-4819-9c17-e1a20aefeadf" config-ref="HTTP_Listener_config" path="/jms" allowedMethods="POST"/>
+		<jms:publish doc:name="Publish" doc:id="f3714f3c-961b-4805-bad0-418819adb2e5" config-ref="JMS_Config" destination="testTopic1Mule" destinationType="TOPIC">
+			<jms:message outboundContentType="application/json" />
+		</jms:publish>
+	</flow>
+	<flow name="employeemanagementFlow5" doc:id="ba3390f2-584f-4431-a257-0ef25cf6044f" >
+		<http:listener doc:name="Listener" doc:id="0f43c3a9-9e3c-4c16-adb2-63f3526941c9" config-ref="HTTP_Listener_config" path="/jms1" allowedMethods="GET"/>
+		<jms:consume doc:name="Consume" doc:id="382dc67b-0f06-4748-93db-05c606dd49a5" config-ref="JMS_Config" destination="testQueue2Mule"/>
+	</flow>
+	<flow name="employeemanagementFlow4" doc:id="bc252cb4-a19c-4bc3-bed5-362a38b704bd" >
+		<jms:listener doc:name="On New Message" doc:id="97abdcd4-b6d1-4654-a7cf-d1c20fe83d05" config-ref="JMS_Config" destination="testTopic1Mule" numberOfConsumers="1">
+			<jms:consumer-type >
+				<jms:topic-consumer />
+			</jms:consumer-type>
+		</jms:listener>
+		<logger level="INFO" doc:name="Logger" doc:id="ae3eba8d-c7bc-4c4b-bd42-2445bbc4433c" message="#[message1:payload]"/>
+	</flow>
+	<flow name="employeemanagementFlow6" doc:id="20574c59-3324-4f11-922e-a89b84dd463a" >
+		<jms:listener doc:name="On New Message" doc:id="a51340a0-6d6c-4b04-86d4-96f8aa23cf29" config-ref="JMS_Config" destination="testTopic1Mule" ackMode="AUTO" numberOfConsumers="1">
+			<jms:consumer-type >
+				<jms:topic-consumer />
+			</jms:consumer-type>
+		</jms:listener>
+		<logger level="INFO" doc:name="Logger" doc:id="dd19e9d1-53a4-46d2-a4d3-552c599d8551" message="#[message2:payload]"/>
+	</flow>
+</mule>
